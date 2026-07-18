@@ -50,9 +50,7 @@ export default async function DashboardPage() {
               <span className="text-xs text-muted">top 10 van {d.contractsCount}</span>
             )}
           </div>
-          <HorizontalBars
-            data={d.topContracts.slice(0, 10).map((t) => ({ label: t.contract.name, value: t.royalty }))}
-          />
+          <HorizontalBars data={d.topContracts.map((t) => ({ label: t.name, value: t.royalty }))} />
           <Link href="/contracten" className="mt-4 inline-block text-sm font-medium text-accent hover:text-accent-strong">
             Alle contracten →
           </Link>

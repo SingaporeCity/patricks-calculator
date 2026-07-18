@@ -13,22 +13,9 @@ export default async function AuteursPage({
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   const { q, page } = await searchParams;
-  const all = await getAuthorSummaries();
-
-  const query = (q ?? "").toLowerCase().trim();
-  const filtered = query
-    ? all.filter(
-        (s) =>
-          authorName(s.author).toLowerCase().includes(query) ||
-          s.author.code.toLowerCase().includes(query) ||
-          (s.author.email ?? "").toLowerCase().includes(query),
-      )
-    : all;
-  filtered.sort((a, b) => authorName(a.author).localeCompare(authorName(b.author)));
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageNum = Math.min(Math.max(1, Number(page) || 1), totalPages);
-  const rows = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
+  const pageNum = Math.max(1, Number(page) || 1);
+  const { rows, total } = await getAuthorSummaries({ q, page: pageNum, pageSize: PAGE_SIZE });
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <Page>
@@ -83,7 +70,7 @@ export default async function AuteursPage({
             )}
           </tbody>
         </Table>
-        <Pagination page={pageNum} totalPages={totalPages} totalItems={filtered.length} />
+        <Pagination page={Math.min(pageNum, totalPages)} totalPages={totalPages} totalItems={total} />
       </Card>
     </Page>
   );

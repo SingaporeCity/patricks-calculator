@@ -14,18 +14,9 @@ export default async function ContractenPage({
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   const { q, page } = await searchParams;
-  const summaries = await getContractSummaries();
-
-  const query = (q ?? "").toLowerCase().trim();
-  const filtered = query
-    ? summaries.filter(
-        (s) => s.contract.contractNumber.toLowerCase().includes(query) || s.contract.name.toLowerCase().includes(query),
-      )
-    : summaries;
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageNum = Math.min(Math.max(1, Number(page) || 1), totalPages);
-  const rows = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
+  const pageNum = Math.max(1, Number(page) || 1);
+  const { rows, total } = await getContractSummaries({ q, page: pageNum, pageSize: PAGE_SIZE });
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <Page>
@@ -105,7 +96,7 @@ export default async function ContractenPage({
             )}
           </tbody>
         </Table>
-        <Pagination page={pageNum} totalPages={totalPages} totalItems={filtered.length} />
+        <Pagination page={Math.min(pageNum, totalPages)} totalPages={totalPages} totalItems={total} />
       </Card>
     </Page>
   );

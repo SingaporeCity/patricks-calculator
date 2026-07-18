@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { getContractSummaries, getProducts } from "@/lib/data";
+import { getProductsPage } from "@/lib/data";
 import { SearchBox } from "@/components/SearchBox";
 import { Pagination } from "@/components/Pagination";
 import { Card, Page, PageHeader, Table, Td, Th } from "@/components/ui";
-import type { Contract } from "@/lib/types";
 
 const PAGE_SIZE = 40;
 
@@ -13,26 +12,9 @@ export default async function ProductenPage({
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   const { q, page } = await searchParams;
-  const [products, summaries] = await Promise.all([getProducts(), getContractSummaries()]);
-
-  const contractsByProduct = new Map<string, Contract[]>();
-  for (const { contract } of summaries) {
-    for (const pid of contract.productIds) {
-      const arr = contractsByProduct.get(pid) ?? [];
-      arr.push(contract);
-      contractsByProduct.set(pid, arr);
-    }
-  }
-
-  const query = (q ?? "").toLowerCase().trim();
-  const filtered = (query
-    ? products.filter((p) => p.title.toLowerCase().includes(query) || p.code.toLowerCase().includes(query))
-    : products
-  ).sort((a, b) => a.code.localeCompare(b.code));
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageNum = Math.min(Math.max(1, Number(page) || 1), totalPages);
-  const rows = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
+  const pageNum = Math.max(1, Number(page) || 1);
+  const { rows, total } = await getProductsPage({ q, page: pageNum, pageSize: PAGE_SIZE });
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <Page>
@@ -52,15 +34,15 @@ export default async function ProductenPage({
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => (
-              <tr key={p.id} className="hover:bg-paper">
-                <Td className="tabular text-muted">{p.code}</Td>
+            {rows.map(({ product, contracts }) => (
+              <tr key={product.id} className="hover:bg-paper">
+                <Td className="tabular text-muted">{product.code}</Td>
                 <Td>
-                  <span className="font-medium">{p.title}</span>
+                  <span className="font-medium">{product.title}</span>
                 </Td>
                 <Td>
                   <div className="flex flex-wrap gap-1.5">
-                    {(contractsByProduct.get(p.id) ?? []).map((c) => (
+                    {contracts.map((c) => (
                       <Link
                         key={c.id}
                         href={`/contracten/${c.id}`}
@@ -82,7 +64,7 @@ export default async function ProductenPage({
             )}
           </tbody>
         </Table>
-        <Pagination page={pageNum} totalPages={totalPages} totalItems={filtered.length} />
+        <Pagination page={Math.min(pageNum, totalPages)} totalPages={totalPages} totalItems={total} />
       </Card>
     </Page>
   );

@@ -23,6 +23,7 @@ export function AccrualFilters({
       if (v === null || v === "") next.delete(k);
       else next.set(k, v);
     }
+    next.delete("page");
     router.push(`/accrual?${next.toString()}`);
   };
 

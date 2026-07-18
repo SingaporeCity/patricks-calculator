@@ -1,4 +1,4 @@
-import { getAvailableYears, getProductAccrual } from "@/lib/data";
+import { getAvailableYears, getProductAccrualAll } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const years = await getAvailableYears();
   const year = jaarParam && years.includes(Number(jaarParam)) ? Number(jaarParam) : undefined;
 
-  const rows = await getProductAccrual({ year, contractId });
+  const rows = await getProductAccrualAll({ year, contractId });
 
   const header = ["productcode", "product", "contractnummer", "contract", "periode", "omzet", "aantal", "tarief_pct", "royaltykost"];
   const lines = [header.join(";")];
