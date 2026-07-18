@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
+    "seed-test": "tsx scripts/seed_test.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "test-calc": "tsx scripts/test-calc.ts"
   },

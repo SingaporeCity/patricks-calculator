@@ -18,6 +18,23 @@ export const isDemoMode = !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 const n = (v: unknown): number => (v == null ? 0 : Number(v));
 
+/** Haalt alle rijen op, paginerend langs de PostgREST-limiet van 1000 per query. */
+async function fetchAll(
+  build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  label: string,
+): Promise<any[]> {
+  const page = 1000;
+  const out: any[] = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await build(from, from + page - 1);
+    if (error) throw new Error(`${label} lezen mislukt: ${error.message}`);
+    const rows = (data ?? []) as any[];
+    out.push(...rows);
+    if (rows.length < page) break;
+  }
+  return out;
+}
+
 export function authorName(a: Author): string {
   return `${a.firstName} ${a.lastName}`;
 }
@@ -64,27 +81,36 @@ const loadSupabaseStore = cache(async (): Promise<Store> => {
   const { createClient } = await import("@/lib/supabase/server");
   const db = await createClient();
 
-  const [prod, auth, contr, brk, cp, ca, acc, pay, led] = await Promise.all([
-    db.from("products").select("id, code, title"),
-    db.from("authors").select("id, code, first_name, last_name, email"),
-    db.from("contracts").select("*"),
-    db.from("tier_brackets").select("contract_id, lower_units, upper_units, rate_pct"),
-    db.from("contract_products").select("contract_id, product_id"),
-    db.from("contract_authors").select("contract_id, author_id, share, advance, advance_year"),
-    db.from("accrual_monthly").select("contract_id, periode, boekjaar, omzet, aantal, royalty_cost, effective_rate"),
-    db.from("payout_annual").select("contract_id, author_id, boekjaar, contract_earned, share, earned_author, payout"),
-    db.from("advance_ledger").select("contract_id, author_id, boekjaar, advance_added, opening_balance, recouped, closing_balance"),
+  // PostgREST geeft standaard max 1000 rijen terug; paginerend alles ophalen.
+  const [prodD, authD, contrD, brkD, cpD, caD, accD, payD, ledD] = await Promise.all([
+    fetchAll((f, t) => db.from("products").select("id, code, title").range(f, t), "products"),
+    fetchAll((f, t) => db.from("authors").select("id, code, first_name, last_name, email").range(f, t), "authors"),
+    fetchAll((f, t) => db.from("contracts").select("*").range(f, t), "contracts"),
+    fetchAll((f, t) => db.from("tier_brackets").select("contract_id, lower_units, upper_units, rate_pct").range(f, t), "tier_brackets"),
+    fetchAll((f, t) => db.from("contract_products").select("contract_id, product_id").range(f, t), "contract_products"),
+    fetchAll((f, t) => db.from("contract_authors").select("contract_id, author_id, share, advance, advance_year").range(f, t), "contract_authors"),
+    fetchAll((f, t) => db.from("accrual_monthly").select("contract_id, periode, boekjaar, omzet, aantal, royalty_cost, effective_rate").range(f, t), "accrual_monthly"),
+    fetchAll((f, t) => db.from("payout_annual").select("contract_id, author_id, boekjaar, contract_earned, share, earned_author, payout").range(f, t), "payout_annual"),
+    fetchAll((f, t) => db.from("advance_ledger").select("contract_id, author_id, boekjaar, advance_added, opening_balance, recouped, closing_balance").range(f, t), "advance_ledger"),
   ]);
-  for (const r of [prod, auth, contr, brk, cp, ca, acc, pay, led]) {
-    if (r.error) throw new Error(`Supabase lezen mislukt: ${r.error.message}`);
-  }
 
-  const products: Product[] = (prod.data ?? []).map((p) => ({ id: p.id, code: p.code, title: p.title }));
-  const authors: Author[] = (auth.data ?? []).map((a) => ({
-    id: a.id, code: a.code ?? "", firstName: a.first_name, lastName: a.last_name, email: a.email ?? "",
-  }));
+  const products: Product[] = prodD.map((p) => ({ id: p.id, code: p.code, title: p.title }));
+  const authors: Author[] = authD.map((a) => ({ id: a.id, code: a.code ?? "", firstName: a.first_name, lastName: a.last_name, email: a.email ?? "" }));
 
-  const contracts: Contract[] = (contr.data ?? []).map((c) => ({
+  const groupBy = <T,>(rows: T[], key: (r: T) => string) => {
+    const m = new Map<string, T[]>();
+    for (const r of rows) {
+      const arr = m.get(key(r)) ?? [];
+      arr.push(r);
+      m.set(key(r), arr);
+    }
+    return m;
+  };
+  const brkByC = groupBy(brkD, (b) => b.contract_id);
+  const cpByC = groupBy(cpD, (x) => x.contract_id);
+  const caByC = groupBy(caD, (x) => x.contract_id);
+
+  const contracts: Contract[] = contrD.map((c) => ({
     id: c.id,
     contractNumber: c.contract_number,
     name: c.name,
@@ -92,42 +118,33 @@ const loadSupabaseStore = cache(async (): Promise<Store> => {
     royaltyModel: c.royalty_model,
     tierAccumulator: c.tier_accumulator,
     tierReset: c.tier_reset,
-    brackets: (brk.data ?? [])
-      .filter((b) => b.contract_id === c.id)
-      .map((b) => ({ lowerUnits: n(b.lower_units), upperUnits: b.upper_units == null ? null : n(b.upper_units), ratePct: n(b.rate_pct) })),
-    productIds: (cp.data ?? []).filter((x) => x.contract_id === c.id).map((x) => x.product_id),
-    authors: (ca.data ?? [])
-      .filter((x) => x.contract_id === c.id)
-      .map((x) => ({ authorId: x.author_id, share: n(x.share), advance: n(x.advance), advanceYear: x.advance_year ?? 0 })),
+    brackets: (brkByC.get(c.id) ?? []).map((b) => ({ lowerUnits: n(b.lower_units), upperUnits: b.upper_units == null ? null : n(b.upper_units), ratePct: n(b.rate_pct) })),
+    productIds: (cpByC.get(c.id) ?? []).map((x) => x.product_id),
+    authors: (caByC.get(c.id) ?? []).map((x) => ({ authorId: x.author_id, share: n(x.share), advance: n(x.advance), advanceYear: x.advance_year ?? 0 })),
     startDate: c.start_date ?? "",
     endDate: c.end_date,
     status: c.status,
   }));
 
   const accrualsByContract = new Map<string, MonthlyAccrual[]>();
-  for (const a of acc.data ?? []) {
-    const row: MonthlyAccrual = {
-      contractId: a.contract_id, periode: a.periode, boekjaar: a.boekjaar,
-      omzet: n(a.omzet), aantal: n(a.aantal), royaltyCost: n(a.royalty_cost), effectiveRate: n(a.effective_rate),
-    };
+  for (const a of accD) {
     const arr = accrualsByContract.get(a.contract_id) ?? [];
-    arr.push(row);
+    arr.push({ contractId: a.contract_id, periode: a.periode, boekjaar: a.boekjaar, omzet: n(a.omzet), aantal: n(a.aantal), royaltyCost: n(a.royalty_cost), effectiveRate: n(a.effective_rate) });
     accrualsByContract.set(a.contract_id, arr);
   }
   for (const arr of accrualsByContract.values()) arr.sort((x, y) => x.periode.localeCompare(y.periode));
 
-  const ledByKey = new Map((led.data ?? []).map((l) => [`${l.contract_id}|${l.author_id}|${l.boekjaar}`, l]));
+  const ledByKey = new Map(ledD.map((l) => [`${l.contract_id}|${l.author_id}|${l.boekjaar}`, l]));
   const payoutsByContract = new Map<string, AnnualPayout[]>();
-  for (const p of pay.data ?? []) {
+  for (const p of payD) {
     const l = ledByKey.get(`${p.contract_id}|${p.author_id}|${p.boekjaar}`);
-    const row: AnnualPayout = {
+    const arr = payoutsByContract.get(p.contract_id) ?? [];
+    arr.push({
       contractId: p.contract_id, authorId: p.author_id, boekjaar: p.boekjaar,
       contractEarned: n(p.contract_earned), share: n(p.share), earnedAuthor: n(p.earned_author),
       advanceAdded: n(l?.advance_added), openingBalance: n(l?.opening_balance),
       recouped: n(l?.recouped), closingBalance: n(l?.closing_balance), payout: n(p.payout),
-    };
-    const arr = payoutsByContract.get(p.contract_id) ?? [];
-    arr.push(row);
+    });
     payoutsByContract.set(p.contract_id, arr);
   }
 
@@ -299,6 +316,43 @@ export async function getAuthorDetail(id: string): Promise<AuthorDetail | null> 
   };
 }
 
+export interface AuthorSummary {
+  author: Author;
+  contractCount: number;
+  totalEarned: number;
+  totalPaid: number;
+  outstanding: number;
+}
+
+/** Per-auteur totalen in één pass (schaalt naar duizenden auteurs). */
+export async function getAuthorSummaries(): Promise<AuthorSummary[]> {
+  const s = await store();
+  const byAuthor = new Map<string, AuthorSummary>();
+  for (const a of s.authors) byAuthor.set(a.id, { author: a, contractCount: 0, totalEarned: 0, totalPaid: 0, outstanding: 0 });
+  for (const c of s.contracts)
+    for (const ca of c.authors) {
+      const sum = byAuthor.get(ca.authorId);
+      if (sum) sum.contractCount++;
+    }
+  for (const payouts of s.payoutsByContract.values()) {
+    const latest = new Map<string, AnnualPayout>();
+    for (const p of payouts) {
+      const sum = byAuthor.get(p.authorId);
+      if (sum) {
+        sum.totalEarned += p.earnedAuthor;
+        sum.totalPaid += p.payout;
+      }
+      const cur = latest.get(p.authorId);
+      if (!cur || p.boekjaar > cur.boekjaar) latest.set(p.authorId, p);
+    }
+    for (const [aid, p] of latest) {
+      const sum = byAuthor.get(aid);
+      if (sum) sum.outstanding += p.closingBalance;
+    }
+  }
+  return [...byAuthor.values()];
+}
+
 export async function getAvailableYears(): Promise<number[]> {
   const s = await store();
   const set = new Set<number>();
@@ -459,18 +513,18 @@ export async function getProductAccrual(opts?: { year?: number; contractId?: str
 
   const { createClient } = await import("@/lib/supabase/server");
   const db = await createClient();
-  let rev = db.from("revenue_lines").select("product_id, periode, boekjaar, omzet, aantal, products(code, title)");
-  if (opts?.year) rev = rev.eq("boekjaar", opts.year);
-  const [revRes, cpRes, contrRes] = await Promise.all([
-    rev,
-    db.from("contract_products").select("contract_id, product_id"),
-    db.from("contracts").select("id, contract_number, name, flat_rate_pct"),
+  const [revD, cpD, contrD] = await Promise.all([
+    fetchAll((f, t) => {
+      const q = db.from("revenue_lines").select("product_id, periode, boekjaar, omzet, aantal, products(code, title)").range(f, t);
+      return opts?.year ? q.eq("boekjaar", opts.year) : q;
+    }, "revenue_lines"),
+    fetchAll((f, t) => db.from("contract_products").select("contract_id, product_id").range(f, t), "contract_products"),
+    fetchAll((f, t) => db.from("contracts").select("id, contract_number, name, flat_rate_pct").range(f, t), "contracts"),
   ]);
-  for (const r of [revRes, cpRes, contrRes]) if (r.error) throw new Error(`accrual lezen: ${r.error.message}`);
 
-  const contractById = new Map((contrRes.data ?? []).map((c) => [c.id, c]));
+  const contractById = new Map(contrD.map((c) => [c.id, c]));
   const contractsByProduct = new Map<string, Array<{ id: string; contract_number: string; name: string; flat_rate_pct: unknown }>>();
-  for (const x of cpRes.data ?? []) {
+  for (const x of cpD) {
     if (opts?.contractId && x.contract_id !== opts.contractId) continue;
     const c = contractById.get(x.contract_id);
     if (!c) continue;
@@ -479,7 +533,7 @@ export async function getProductAccrual(opts?: { year?: number; contractId?: str
     contractsByProduct.set(x.product_id, arr);
   }
 
-  for (const r of revRes.data ?? []) {
+  for (const r of revD) {
     const product = (r.products ?? {}) as { code?: string; title?: string };
     for (const c of contractsByProduct.get(r.product_id) ?? []) {
       const rate = n(c.flat_rate_pct);

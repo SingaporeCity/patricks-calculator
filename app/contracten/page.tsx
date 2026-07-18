@@ -2,10 +2,30 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { getContractSummaries } from "@/lib/data";
 import { formatRatePct } from "@/lib/format";
+import { SearchBox } from "@/components/SearchBox";
+import { Pagination } from "@/components/Pagination";
 import { Badge, Card, Money, Page, PageHeader, Table, Td, Th } from "@/components/ui";
 
-export default async function ContractenPage() {
+const PAGE_SIZE = 25;
+
+export default async function ContractenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; page?: string }>;
+}) {
+  const { q, page } = await searchParams;
   const summaries = await getContractSummaries();
+
+  const query = (q ?? "").toLowerCase().trim();
+  const filtered = query
+    ? summaries.filter(
+        (s) => s.contract.contractNumber.toLowerCase().includes(query) || s.contract.name.toLowerCase().includes(query),
+      )
+    : summaries;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageNum = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const rows = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
 
   return (
     <Page>
@@ -13,13 +33,16 @@ export default async function ContractenPage() {
         title="Contracten"
         description="Elk contract koppelt producten en auteurs aan een royalty-afspraak."
         right={
-          <Link
-            href="/contracten/nieuw"
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white hover:bg-accent-strong"
-          >
-            <Plus className="h-4 w-4" />
-            Nieuw contract
-          </Link>
+          <div className="flex items-center gap-3">
+            <SearchBox placeholder="Zoek nummer of naam…" />
+            <Link
+              href="/contracten/nieuw"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white hover:bg-accent-strong"
+            >
+              <Plus className="h-4 w-4" />
+              Nieuw contract
+            </Link>
+          </div>
         }
       />
 
@@ -37,12 +60,12 @@ export default async function ContractenPage() {
             </tr>
           </thead>
           <tbody>
-            {summaries.map(({ contract, totalRevenue, totalRoyalty, productCount, authorCount, outstandingAdvance }) => (
+            {rows.map(({ contract, totalRevenue, totalRoyalty, productCount, authorCount, outstandingAdvance }) => (
               <tr key={contract.id} className="group hover:bg-paper">
                 <Td>
                   <Link href={`/contracten/${contract.id}`} className="block">
                     <div className="font-medium text-ink group-hover:text-accent-strong">{contract.name}</div>
-                    <div className="text-xs text-muted">{contract.contractNumber}</div>
+                    <div className="text-xs text-muted tabular">{contract.contractNumber}</div>
                   </Link>
                 </Td>
                 <Td>
@@ -69,8 +92,20 @@ export default async function ContractenPage() {
                 </Td>
               </tr>
             ))}
+            {rows.length === 0 && (
+              <tr>
+                <Td className="text-muted">Geen contracten gevonden.</Td>
+                <Td> </Td>
+                <Td right> </Td>
+                <Td right> </Td>
+                <Td right> </Td>
+                <Td right> </Td>
+                <Td right> </Td>
+              </tr>
+            )}
           </tbody>
         </Table>
+        <Pagination page={pageNum} totalPages={totalPages} totalItems={filtered.length} />
       </Card>
     </Page>
   );

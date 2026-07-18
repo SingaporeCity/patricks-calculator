@@ -44,10 +44,18 @@ export default async function DashboardPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="p-5">
-          <h2 className="mb-4 text-sm font-semibold">Royalty per contract</h2>
+          <div className="mb-4 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold">Royalty per contract</h2>
+            {d.topContracts.length > 10 && (
+              <span className="text-xs text-muted">top 10 van {d.contractsCount}</span>
+            )}
+          </div>
           <HorizontalBars
-            data={d.topContracts.map((t) => ({ label: t.contract.name, value: t.royalty }))}
+            data={d.topContracts.slice(0, 10).map((t) => ({ label: t.contract.name, value: t.royalty }))}
           />
+          <Link href="/contracten" className="mt-4 inline-block text-sm font-medium text-accent hover:text-accent-strong">
+            Alle contracten →
+          </Link>
         </Card>
 
         <Card className="p-5">

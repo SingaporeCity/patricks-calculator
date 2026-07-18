@@ -1,8 +1,10 @@
 import { Download } from "lucide-react";
 import { getAvailableYears, getContractSummaries, getProductAccrual } from "@/lib/data";
-import { formatEuro, formatEuro0, formatRatePct } from "@/lib/format";
+import { formatEuro0, formatRatePct } from "@/lib/format";
 import { AccrualFilters } from "@/components/AccrualFilters";
 import { Card, Money, Num, Page, PageHeader, StatCard, Table, Td, Th } from "@/components/ui";
+
+const ROW_CAP = 1500;
 
 export default async function AccrualPage({
   searchParams,
@@ -11,7 +13,8 @@ export default async function AccrualPage({
 }) {
   const { jaar, contract } = await searchParams;
   const years = await getAvailableYears();
-  const selectedYear = jaar && years.includes(Number(jaar)) ? Number(jaar) : null;
+  // Standaard het nieuwste jaar (begrensd); "alle" = alle jaren.
+  const selectedYear = jaar === "alle" ? null : jaar && years.includes(Number(jaar)) ? Number(jaar) : (years[0] ?? null);
   const selectedContract = contract ?? "";
 
   const summaries = await getContractSummaries();
@@ -20,11 +23,13 @@ export default async function AccrualPage({
   const rows = await getProductAccrual({ year: selectedYear ?? undefined, contractId: selectedContract || undefined });
   const totalOmzet = rows.reduce((s, r) => s + r.omzet, 0);
   const totalRoyalty = rows.reduce((s, r) => s + r.royaltyCost, 0);
+  const shown = rows.slice(0, ROW_CAP);
+  const capped = rows.length > ROW_CAP;
 
   const exportParams = new URLSearchParams();
-  if (selectedYear) exportParams.set("jaar", String(selectedYear));
+  exportParams.set("jaar", selectedYear ? String(selectedYear) : "alle");
   if (selectedContract) exportParams.set("contract", selectedContract);
-  const exportHref = `/api/export/maandaccrual${exportParams.toString() ? `?${exportParams}` : ""}`;
+  const exportHref = `/api/export/maandaccrual?${exportParams}`;
 
   return (
     <Page>
@@ -54,8 +59,14 @@ export default async function AccrualPage({
 
       <Card className="mt-6 p-5">
         <p className="mb-3 text-xs text-muted">
-          Staat een product op meerdere contracten (bijv. Moderne Wiskunde 14 op RP_10001 én CC_10002), dan verschijnt het
-          per contract met het eigen percentage.
+          Staat een product op meerdere contracten, dan verschijnt het per contract met het eigen percentage.
+          {capped && (
+            <>
+              {" "}
+              Er zijn <strong>{rows.length.toLocaleString("nl-NL")}</strong> regels in deze selectie; hieronder de eerste{" "}
+              {ROW_CAP.toLocaleString("nl-NL")}. Gebruik <strong>Exporteren (CSV)</strong> of een filter voor de volledige lijst.
+            </>
+          )}
         </p>
         <div className="max-h-[32rem] overflow-y-auto">
           <Table>
@@ -71,7 +82,7 @@ export default async function AccrualPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {shown.map((r, i) => (
                 <tr key={i} className="hover:bg-paper">
                   <Td>
                     <span className="tabular text-muted">{r.productCode}</span> <span className="font-medium">{r.productTitle}</span>
@@ -102,23 +113,6 @@ export default async function AccrualPage({
                 </tr>
               )}
             </tbody>
-            {rows.length > 0 && (
-              <tfoot className="sticky bottom-0 bg-surface">
-                <tr>
-                  <Td className="font-semibold">Totaal</Td>
-                  <Td> </Td>
-                  <Td> </Td>
-                  <Td right>
-                    <Money value={totalOmzet} className="font-semibold" />
-                  </Td>
-                  <Td right> </Td>
-                  <Td right> </Td>
-                  <Td right>
-                    <Money value={totalRoyalty} className="font-semibold" />
-                  </Td>
-                </tr>
-              </tfoot>
-            )}
           </Table>
         </div>
       </Card>

@@ -30,7 +30,7 @@ export function AccrualFilters({
     <div className="flex flex-wrap items-center gap-3">
       <div className="flex gap-1 rounded-lg border border-line bg-surface p-1">
         <button
-          onClick={() => go({ jaar: null })}
+          onClick={() => go({ jaar: "alle" })}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
             selectedYear === null ? "bg-accent text-white" : "text-muted hover:bg-paper",
