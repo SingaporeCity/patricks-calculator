@@ -76,13 +76,28 @@ const demoStore: Store = (() => {
 
 // --- Supabase-store (per request gecachet) ---------------------------------
 
-const loadSupabaseStore = cache(async (): Promise<Store> => {
+// In-memory cache van de ruwe rollup-data. Alle ingelogde gebruikers zien
+// dezelfde data (RLS = "authenticated mag alles lezen"), dus een gedeelde cache
+// is veilig. Korte TTL + handmatige bust na een herberekening.
+interface RawTables {
+  products: any[]; authors: any[]; contracts: any[]; brk: any[]; cp: any[];
+  ca: any[]; acc: any[]; pay: any[]; led: any[];
+}
+let rawCache: { data: RawTables; at: number } | null = null;
+const RAW_TTL_MS = 30_000;
+
+/** Leegt de data-cache; aanroepen na een recompute/import zodat wijzigingen meteen zichtbaar zijn. */
+export function bustDataCache() {
+  rawCache = null;
+}
+
+async function loadRawTables(): Promise<RawTables> {
+  if (rawCache && Date.now() - rawCache.at < RAW_TTL_MS) return rawCache.data;
   // Lezen gebeurt als de INGELOGDE gebruiker (RLS beschermt de data).
   const { createClient } = await import("@/lib/supabase/server");
   const db = await createClient();
-
   // PostgREST geeft standaard max 1000 rijen terug; paginerend alles ophalen.
-  const [prodD, authD, contrD, brkD, cpD, caD, accD, payD, ledD] = await Promise.all([
+  const [products, authors, contracts, brk, cp, ca, acc, pay, led] = await Promise.all([
     fetchAll((f, t) => db.from("products").select("id, code, title").range(f, t), "products"),
     fetchAll((f, t) => db.from("authors").select("id, code, first_name, last_name, email").range(f, t), "authors"),
     fetchAll((f, t) => db.from("contracts").select("*").range(f, t), "contracts"),
@@ -93,6 +108,12 @@ const loadSupabaseStore = cache(async (): Promise<Store> => {
     fetchAll((f, t) => db.from("payout_annual").select("contract_id, author_id, boekjaar, contract_earned, share, earned_author, payout").range(f, t), "payout_annual"),
     fetchAll((f, t) => db.from("advance_ledger").select("contract_id, author_id, boekjaar, advance_added, opening_balance, recouped, closing_balance").range(f, t), "advance_ledger"),
   ]);
+  rawCache = { data: { products, authors, contracts, brk, cp, ca, acc, pay, led }, at: Date.now() };
+  return rawCache.data;
+}
+
+const loadSupabaseStore = cache(async (): Promise<Store> => {
+  const { products: prodD, authors: authD, contracts: contrD, brk: brkD, cp: cpD, ca: caD, acc: accD, pay: payD, led: ledD } = await loadRawTables();
 
   const products: Product[] = prodD.map((p) => ({ id: p.id, code: p.code, title: p.title }));
   const authors: Author[] = authD.map((a) => ({ id: a.id, code: a.code ?? "", firstName: a.first_name, lastName: a.last_name, email: a.email ?? "" }));

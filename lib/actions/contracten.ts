@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isDemoMode } from "@/lib/data";
+import { bustDataCache, isDemoMode } from "@/lib/data";
 
 export interface CreateContractInput {
   contractNumber: string;
@@ -78,6 +78,7 @@ export async function createContract(input: CreateContractInput): Promise<Action
   const { error: re } = await db.rpc("recompute_contracts", { p_contract_ids: [contractId] });
   if (re) return { ok: false, fout: `Herberekenen mislukt: ${re.message}` };
 
+  bustDataCache();
   revalidatePath("/contracten");
   revalidatePath("/");
   return { ok: true, contractId };
